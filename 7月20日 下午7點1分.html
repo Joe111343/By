@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>色調幻影圖生成器</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+    canvas { border: 1px solid #ccc; max-width: 100%; height: auto; }
+    label { display: block; margin-top: 15px; }
+    button { padding: 10px 20px; margin-top: 20px; cursor: pointer; }
+    #downloadLink { display: none; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h2>色調幻影圖合成器 (原圖 + 隱藏圖 = 合成圖)</h2>
+  <p>這個工具會將兩張圖片合併，讓原圖主要顯示在紅色與綠色通道，而隱藏圖主要顯示在藍色通道。生成圖片後，你可以使用影像編輯軟體（如 Photoshop）調整**色相 (Hue)** 或 **色彩平衡** 來看到隱藏圖。</p>
+  
+  <label>上傳原圖：<input type="file" id="originalInput" accept="image/*"></label>
+  <label>上傳隱藏圖：<input type="file" id="hiddenInput" accept="image/*"></label>
+  
+  <button id="generate">生成圖像</button>
+
+  <h3>輸出圖：</h3>
+  <canvas id="outputCanvas"></canvas>
+  <br>
+  <a id="downloadLink">下載生成圖像</a>
+
+  <script>
+    const originalInput = document.getElementById("originalInput");
+    const hiddenInput = document.getElementById("hiddenInput");
+    const outputCanvas = document.getElementById("outputCanvas");
+    const generateBtn = document.getElementById("generate");
+    const downloadLink = document.getElementById("downloadLink");
+
+    generateBtn.onclick = async () => {
+      if (!originalInput.files[0] || !hiddenInput.files[0]) {
+        alert("請上傳原圖和隱藏圖");
+        return;
+      }
+
+      const originalImg = await loadImage(originalInput.files[0]);
+      const hiddenImg = await loadImage(hiddenInput.files[0]);
+
+      // 以原圖尺寸為基準，如果隱藏圖尺寸不同則會自動縮放
+      const width = originalImg.width;
+      const height = originalImg.height;
+      
+      console.log(`圖片尺寸: ${width} x ${height}`);
+
+      outputCanvas.width = width;
+      outputCanvas.height = height;
+      const ctx = outputCanvas.getContext("2d");
+
+      // 繪製原圖和隱藏圖到離屏 canvas，以獲取像素資料
+      const oriCanvas = drawToCanvas(originalImg, width, height);
+      const hidCanvas = drawToCanvas(hiddenImg, width, height);
+      const oriData = oriCanvas.getContext("2d").getImageData(0, 0, width, height);
+      const hidData = hidCanvas.getContext("2d").getImageData(0, 0, width, height);
+
+      const result = ctx.createImageData(width, height);
+      
+      console.log("開始合併色彩通道...");
+
+      for (let i = 0; i < oriData.data.length; i += 4) {
+        // 從原圖取得紅色和綠色通道的值
+        const oriR = oriData.data[i];
+        const oriG = oriData.data[i + 1];
+
+        // 從隱藏圖取得藍色通道的值
+        const hidB = hidData.data[i + 2];
+
+        // 將原圖的 R 和 G、隱藏圖的 B 合併到輸出像素中
+        result.data[i] = oriR;
+        result.data[i + 1] = oriG;
+        result.data[i + 2] = hidB;
+        result.data[i + 3] = 255; // 設定 Alpha 值為不透明
+      }
+
+      ctx.putImageData(result, 0, 0);
+      
+      console.log("色調幻影圖已生成完成。");
+      console.log("效果：正常顯示原圖，調整色相可顯示隱藏圖。");
+
+      // 導出下載 - PNG 格式無損保存
+      const url = outputCanvas.toDataURL("image/png");
+      downloadLink.href = url;
+      downloadLink.download = "color_phantom_image.png";
+      downloadLink.textContent = "下載生成的幻影圖 (PNG格式)";
+      downloadLink.style.display = "inline-block";
+    };
+
+    function loadImage(file) {
+      return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    function drawToCanvas(img, width, height) {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas;
+    }
+  </script>
+</body>
+</html>

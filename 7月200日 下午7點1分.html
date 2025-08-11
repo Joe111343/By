@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GLaDOS MIDI 播放器 (midi.js版)</title>
+</head>
+<body>
+    <h1>GLaDOS MIDI 播放器</h1>
+    <p>上傳 MIDI 檔案，用 GLaDOS 音色播放旋律。</p>
+    <input type="file" id="midiFile" accept=".mid">
+    <button id="playButton" disabled>播放 MIDI</button>
+    <button id="stopButton" disabled>停止</button>
+
+    <script src="https://gleitz.github.io/midi-js/src/MIDI/MIDI.js"></script>
+
+    <script>
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const fileInput = document.getElementById('midiFile');
+        const playButton = document.getElementById('playButton');
+        const stopButton = document.getElementById('stopButton');
+
+        let midiFile = null;
+        let oscillators = new Map();
+        let playingTimeout = null;
+
+        // 初始化 midi.js
+        MIDI.loadPlugin({
+            soundfontUrl: "https://gleitz.github.io/midi-js/soundfont/acoustic_grand_piano/",
+            instrument: "acoustic_grand_piano", // 這個樂器不會被使用，但載入它是必要的
+            onprogress: function(state, progress) {
+                console.log(state, progress);
+            },
+            onsuccess: function() {
+                console.log("MIDI.js 已載入。");
+            }
+        });
+
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const arrayBuffer = e.target.result;
+                    midiFile = MIDI.Player.prepare(arrayBuffer);
+                    playButton.disabled = false;
+                    console.log("MIDI 檔案已準備好。");
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+
+        playButton.addEventListener('click', () => {
+            if (midiFile) {
+                playMIDI(midiFile);
+                playButton.disabled = true;
+                stopButton.disabled = false;
+            }
+        });
+
+        stopButton.addEventListener('click', () => {
+            stopMIDI();
+            playButton.disabled = false;
+            stopButton.disabled = true;
+        });
+
+        function playMIDI(midiData) {
+            MIDI.Player.start();
+            
+            midiData.tracks.forEach(track => {
+                let trackTime = 0;
+                track.forEach(event => {
+                    trackTime += event.deltaTime * (60000 / midiData.header.ppq) / 1000;
+                    if (event.type === 'channel' && event.subtype === 'noteOn') {
+                        const freq = midiNoteToFrequency(event.noteNumber);
+                        const oscillatorNode = createGLaDOSOscillator(freq);
+                        
+                        // 安排在指定時間開始播放
+                        const timeoutId = setTimeout(() => {
+                            oscillatorNode.start();
+                            oscillators.set(event.noteNumber, oscillatorNode);
+                        }, trackTime * 1000);
+                    } else if (event.type === 'channel' && event.subtype === 'noteOff') {
+                        const timeoutId = setTimeout(() => {
+                            const oscillatorNode = oscillators.get(event.noteNumber);
+                            if (oscillatorNode) {
+                                oscillatorNode.stop();
+                                oscillators.delete(event.noteNumber);
+                            }
+                        }, trackTime * 1000);
+                    }
+                });
+            });
+            
+            // 播放結束後自動停止
+            const totalDuration = midiData.duration * 1000;
+            playingTimeout = setTimeout(() => {
+                stopMIDI();
+                playButton.disabled = false;
+                stopButton.disabled = true;
+            }, totalDuration);
+        }
+
+        function stopMIDI() {
+            clearTimeout(playingTimeout);
+            oscillators.forEach(osc => {
+                try {
+                    osc.stop();
+                } catch (e) {}
+            });
+            oscillators.clear();
+        }
+
+        function midiNoteToFrequency(midiNote) {
+            return 440 * Math.pow(2, (midiNote - 69) / 12);
+        }
+
+        function createGLaDOSOscillator(frequency) {
+            const carrier = audioContext.createOscillator();
+            carrier.type = 'sawtooth';
+            carrier.frequency.value = frequency;
+
+            const modulator = audioContext.createOscillator();
+            modulator.type = 'sine';
+            modulator.frequency.value = frequency * 2;
+
+            const modulatorGain = audioContext.createGain();
+            modulatorGain.gain.value = 50;
+
+            const distortion = audioContext.createWaveShaper();
+            distortion.curve = makeDistortionCurve(400);
+
+            const delay = audioContext.createDelay(1.0);
+            delay.delayTime.value = 0.1;
+
+            const feedbackGain = audioContext.createGain();
+            feedbackGain.gain.value = 0.3;
+
+            modulator.connect(modulatorGain);
+            modulatorGain.connect(carrier.frequency);
+
+            carrier.connect(distortion);
+            distortion.connect(delay);
+
+            delay.connect(feedbackGain);
+            feedbackGain.connect(delay);
+
+            delay.connect(audioContext.destination);
+
+            return carrier;
+        }
+
+        function makeDistortionCurve(amount) {
+            // 失真曲線函式
+            var k = typeof amount === 'number' ? amount : 50,
+                n_samples = 44100,
+                curve = new Float32Array(n_samples),
+                deg = Math.PI / 180,
+                i = 0,
+                x;
+            for ( ; i < n_samples; ++i ) {
+                x = i * 2 / n_samples - 1;
+                curve[i] = ( 3 + k ) * x * 20 * deg / ( Math.PI + k * Math.abs(x) );
+            }
+            return curve;
+        };
+    </script>
+</body>
+</html>
