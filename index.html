@@ -1,3 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>穩定定格播放器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&display=swap" rel="stylesheet">
+<style>
+html, body {
+margin: 0; padding: 0; height: 100vh;
+font-family: sans-serif;
+color: white;
+overflow: hidden;
+}
+#background {
+position: fixed;
+top: 0; left: 0; width: 100%; height: 100%;
+background: url('背景1.jpg') no-repeat center center fixed;
+background-size: cover;
+transition: transform 0.05s ease-out;
+transform-origin: center center;
+z-index: -1;
+}
+#container {
+position: fixed;
+bottom: 30px;
+left: 375px;
+width: 300px;
+height: 150px;
+transform: rotate(-45deg);
+transform-origin: bottom right;
+clip-path: polygon(10% 0%, 90% 0%, 100% 50%, 90% 100%, 10% 100%, 0% 50%);
+background: transparent;
+z-index: 999;
+position: relative;
+overflow: hidden;
+}
+#imageCanvas {
+position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block;
+image-rendering: pixelated;
+z-index: 10;
+}
+#fullScreenParticleCanvas {
+position: absolute;
+top: 0; left: 0;
+width: 100%; height: 100%;
+z-index: 2;
+pointer-events: none;
+}
+#topLeftText {
+position: fixed; top: 10px; left: 10px;
+font-size: 14px;
+display: flex; flex-direction: column; gap: 6px;
+user-select: none; z-index: 1000;
+}
+#limiterToggle label, #gainToggleBtn {
+cursor: pointer; user-select: none;
+font-size: 14px; display: flex; align-items: center; gap: 6px;
+}
+#limiterCheckbox { width: 16px; height: 16px; cursor: pointer; }
+#gainPanel {
+display: none; margin-top: 8px; gap: 6px;
+align-items: center; user-select: none;
+}
+#gainSlider { width: 150px; }
+#gainValueDisplay {
+min-width: 40px; text-align: center; font-weight: bold;
+}
+button {
+background: #444; border: none; color: #eee;
+padding: 2px 6px; border-radius: 4px; cursor: pointer;
+}
+#thanks {
+position: fixed; bottom: 36px; left: 10px;
+font-size: 14px; user-select: none; z-index: 1000;
+}
+#spectrum {
+position: fixed;
+top: 50%; left: 50%;
+transform: translate(-50%, -50%) rotate(-90deg);
+width: 1000px; height: 120px;
+pointer-events: none; z-index: 20;
+background: transparent; border-radius: 8px;
+}
+#fileInput {
+position: fixed; top: 10px; right: 10px; z-index: 100;
+}
+#playBtn {
+position: fixed; top: 50%; left: 50%;
+transform: translate(-50%, -50%);
+z-index: 200;
+font-size: 18px; padding: 10px 20px;
+border: none; background: lime; color: black;
+cursor: pointer; border-radius: 8px;
+}
+#volumeMeterContainer {
+position: fixed; bottom: 10px; right: 60px;
+width: 300px; height: 16px; background: #222;
+border-radius: 8px; overflow: hidden; z-index: 100;
+}
+#volumeMeterBar {
+height: 100%; width: 0%;
+background: limegreen;
+transition: width 0.1s linear, background 0.1s linear;
+}
+#oscilloscope {
+position: fixed; top: 50%; left: 50%;
+transform: translate(-50%, -50%);
+z-index: 15;
+border-radius: 50%;
+background-color: transparent;
+}
+</style>
+</head>
+<body>
+<div id="background">
+<canvas id="fullScreenParticleCanvas"></canvas>
+</div>
+<div id="topLeftText">
+趔陽不會陽bilibili
+<div id="limiterToggle">
+<label><input type="checkbox" id="limiterCheckbox" checked />限幅器</label>
+</div>
+<button id="gainToggleBtn">+</button>
+<div id="gainPanel">
+<input type="range" id="gainSlider" min="1" max="100" step="1" value="1" />
+<span id="gainValueDisplay">1</span>
+</div>
+</div>
+<div id="thanks">感謝 <span style="color:deepskyblue">@趔陽不會陽</span> 的BY player</div>
+<div id="container">
+<canvas id="imageCanvas" width="600" height="300"></canvas>
+</div>
+<canvas id="oscilloscope" width="200" height="200"></canvas>
+<canvas id="spectrum"></canvas>
+<input type="file" id="fileInput" accept=".mp3,.wav,.m4a" />
+<button id="playBtn">▶ 播放音訊</button>
+<div id="volumeMeterContainer"><div id="volumeMeterBar"></div></div>
+<script>
+document.addEventListener('DOMContentLoaded', (event) => {
+const imageCanvas = document.getElementById('imageCanvas');
+const imageCtx = imageCanvas.getContext('2d');
+const fullScreenParticleCanvas = document.getElementById('fullScreenParticleCanvas');
+const particleCtx = fullScreenParticleCanvas.getContext('2d');
+const background = document.getElementById('background');
+fullScreenParticleCanvas.width = window.innerWidth;
+fullScreenParticleCanvas.height = window.innerHeight;
+
+const width = imageCanvas.width, height = imageCanvas.height;
+const image = new Image();
+image.src = 'R.png';
+let imageLoaded = false;
+let oswaldFontLoaded = false;
+let frameBuffer = [], maxFrames = 4;
+const smoothedOffsets = new Array(width).fill(0);
+const smoothingFactor = 0.8;
+let smoothedMax = 0;
+let analyser, analyser_for_image, analyserL, analyserR, channelSplitter, channelMerger;
+let dataArray, dataArray_for_image, freqArrayL, freqArrayR;
+let audioCtx, source, volumeGain, limiter;
+let lowpassFilter;
+let limiterEnabled = true;
+let gainValue = 1;
+const volumeBase = 0.2;
+const spectrumCanvas = document.getElementById('spectrum');
+const spectrumCtx = spectrumCanvas.getContext('2d');
 spectrumCanvas.width = 1000;
 spectrumCanvas.height = 120;
 
@@ -6,7 +174,6 @@ const oscilloscopeCtx = oscilloscopeCanvas.getContext('2d');
 const oscilloscopeWidth = oscilloscopeCanvas.width;
 const oscilloscopeHeight = oscilloscopeCanvas.height;
 
-// 已移除平滑變數，將直接使用即時頻率
 let smoothedMaxFreq = 0;
 const smoothingFactorFreq = 0.1;
 
@@ -143,8 +310,6 @@ function draw() {
   }
   const lowPower = weightedSum / totalWeight;
   
-  // *** 這行是修改的部分：直接使用即時值，沒有平滑處理 ***
-  // smoothedMax = smoothedMax * 0.9 + lowPower * 0.1;
   smoothedMax = lowPower;
 
   for (let y = 0; y < halfH; y++) {
@@ -153,8 +318,7 @@ function draw() {
       const index = Math.floor(x * dataArray_for_image.length / width);
       const rawOffset = (dataArray_for_image[index] / 255 - 0.5);
       const newOffset = rawOffset * (smoothedMax / 255) * volumeBase * gainValue * 250;
-      smoothedOffsets[x] = smoothedOffsets[x] * smoothingFactor + newOffset * (1 - smoothingFactor);
-      let offset = smoothedOffsets[x];
+      let offset = newOffset;
       let newY = y + Math.floor(offset);
       newY = Math.max(0, Math.min(height - 1, newY));
       const j = (newY * width + x) * 4;
@@ -241,9 +405,6 @@ function draw() {
       }
     }
     const maxFreqHz = Math.floor(maxBinIndex * binsize2);
-    // 移除平滑處理，直接使用即時頻率
-    // smoothedMaxFreq = smoothedMaxFreq * smoothingFactorFreq + maxFreqHz * (1 - smoothingFactorFreq);
-    // const freqString = Math.floor(smoothedMaxFreq).toString();
     const freqString = maxFreqHz.toString();
     
     const imageScale = 0.05;
@@ -260,18 +421,16 @@ function draw() {
 
     const digitHeight = (numberImages['1']?.height || 0) * imageScale;
 
-    // Use the max frequency point to position the text
     const textRadiusOffset = -5;
-    const peakAngle = (maxBinIndex / totalbins) * Math.PI; // angle based on max freq
-    const peakRadius = (maxVolume / 255 * 2) * 25; // radius of the peak on the spectrum
+    const peakAngle = (maxBinIndex / totalbins) * Math.PI;
+    const peakRadius = (maxVolume / 255 * 2) * 25;
     
-    // Original frequency text drawing
     const textX = centerx + (peakRadius + textRadiusOffset) * Math.cos(peakAngle);
     const textY = centery - (peakRadius + textRadiusOffset) * Math.sin(peakAngle);
 
     spectrumCtx.save();
     spectrumCtx.translate(textX, textY);
-    spectrumCtx.rotate(Math.PI / 2); // 90 degrees clockwise
+    spectrumCtx.rotate(Math.PI / 2);
     
     let drawX = -(totalWidth / 2);
     const drawY = -(digitHeight / 2);
@@ -295,13 +454,12 @@ function draw() {
     }
     spectrumCtx.restore();
 
-    // Flipped frequency text drawing
     const flippedTextX = centerx + (peakRadius + textRadiusOffset) * Math.cos(peakAngle);
     const flippedTextY = centery + (peakRadius + textRadiusOffset) * Math.sin(peakAngle);
     
     spectrumCtx.save();
     spectrumCtx.translate(flippedTextX, flippedTextY);
-    spectrumCtx.rotate(-Math.PI / -2); // 90 degrees counter-clockwise
+    spectrumCtx.rotate(-Math.PI / -2);
     
     let flippedDrawX = -(totalWidth / 2);
     const flippedDrawY = -(digitHeight / 2);
@@ -480,11 +638,11 @@ playBtn.addEventListener('click', async () => {
   });
 
   limiter = audioCtx.createDynamicsCompressor();
-  limiter.threshold.value = -5;
-  limiter.knee.value = 5;
+  limiter.threshold.value = -10;
+  limiter.knee.value = 6;
   limiter.ratio.value = 5;
   limiter.attack.value = 0.003;
-  limiter.release.value = 0.2;
+  limiter.release.value = 20;
 
   lowpassFilter = audioCtx.createBiquadFilter();
   lowpassFilter.type = 'lowpass';
