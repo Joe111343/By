@@ -198,24 +198,6 @@ document.fonts.ready.then(() => {
     console.log('Oswald font loaded.');
   }
 });
-const numberImages = {};
-const digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'hz'];
-let imagesLoadedCount = 0;
-let allImagesLoaded = false;
-function loadImages() {
-  digits.forEach(digit => {
-    const img = new Image();
-    img.src = `${digit}.png`;
-    img.onload = () => {
-      imagesLoadedCount++;
-      if (imagesLoadedCount === digits.length) {
-        allImagesLoaded = true;
-      }
-    };
-    numberImages[`${digit}`] = img;
-  });
-}
-loadImages();
 function drawImageScaledCenter(ctx, img, w, h) {
   const scale = Math.min(w / img.width, h / img.height);
   const iw = img.width * scale, ih = img.height * scale;
@@ -394,7 +376,7 @@ function draw() {
   spectrumCtx.fillStyle = 'rgba(0, 255, 255, 0.8)';
   spectrumCtx.fill();
 
-  if (freqArrayL && freqArrayR && allImagesLoaded) {
+  if (freqArrayL && freqArrayR) {
     let maxVolume = 0;
     let maxBinIndex = 0;
     for (let i = startbin; i <= endbin; i++) {
@@ -407,51 +389,22 @@ function draw() {
     const maxFreqHz = Math.floor(maxBinIndex * binsize2);
     const freqString = maxFreqHz.toString();
     
-    const imageScale = 0.05;
-    let totalWidth = 0;
-    for (let i = 0; i < freqString.length; i++) {
-        const digit = freqString.charAt(i);
-        if (numberImages[digit]) {
-            totalWidth += numberImages[digit].width * imageScale;
-        }
-    }
-    if (numberImages['hz']) {
-        totalWidth += numberImages['hz'].width * imageScale;
-    }
+    spectrumCtx.font = "16px Oswald";
+    spectrumCtx.fillStyle = 'white';
+    spectrumCtx.textAlign = 'center';
+    spectrumCtx.textBaseline = 'middle';
 
-    const digitHeight = (numberImages['1']?.height || 0) * imageScale;
-
-    const textRadiusOffset = -5;
+    const textRadiusOffset = 5;
     const peakAngle = (maxBinIndex / totalbins) * Math.PI;
     const peakRadius = (maxVolume / 255 * 2) * 25;
     
     const textX = centerx + (peakRadius + textRadiusOffset) * Math.cos(peakAngle);
     const textY = centery - (peakRadius + textRadiusOffset) * Math.sin(peakAngle);
-
+    
     spectrumCtx.save();
     spectrumCtx.translate(textX, textY);
     spectrumCtx.rotate(Math.PI / 2);
-    
-    let drawX = -(totalWidth / 2);
-    const drawY = -(digitHeight / 2);
-
-    for (let i = 0; i < freqString.length; i++) {
-      const digit = freqString.charAt(i);
-      if (numberImages[digit]) {
-        const img = numberImages[digit];
-        const scaledWidth = img.width * imageScale;
-        const scaledHeight = img.height * imageScale;
-        spectrumCtx.drawImage(img, drawX, drawY, scaledWidth, scaledHeight);
-        drawX += scaledWidth;
-      }
-    }
-
-    if (numberImages['hz']) {
-      const img = numberImages['hz'];
-      const scaledWidth = img.width * imageScale;
-      const scaledHeight = img.height * imageScale;
-      spectrumCtx.drawImage(img, drawX, drawY, scaledWidth, scaledHeight);
-    }
+    spectrumCtx.fillText(`${freqString}hz`, 0, 0);
     spectrumCtx.restore();
 
     const flippedTextX = centerx + (peakRadius + textRadiusOffset) * Math.cos(peakAngle);
@@ -459,28 +412,8 @@ function draw() {
     
     spectrumCtx.save();
     spectrumCtx.translate(flippedTextX, flippedTextY);
-    spectrumCtx.rotate(-Math.PI / -2);
-    
-    let flippedDrawX = -(totalWidth / 2);
-    const flippedDrawY = -(digitHeight / 2);
-
-    for (let i = 0; i < freqString.length; i++) {
-      const digit = freqString.charAt(i);
-      if (numberImages[digit]) {
-        const img = numberImages[digit];
-        const scaledWidth = img.width * imageScale;
-        const scaledHeight = img.height * imageScale;
-        spectrumCtx.drawImage(img, flippedDrawX, flippedDrawY, scaledWidth, scaledHeight);
-        flippedDrawX += scaledWidth;
-      }
-    }
-
-    if (numberImages['hz']) {
-      const img = numberImages['hz'];
-      const scaledWidth = img.width * imageScale;
-      const scaledHeight = img.height * imageScale;
-      spectrumCtx.drawImage(img, flippedDrawX, flippedDrawY, scaledWidth, scaledHeight);
-    }
+    spectrumCtx.rotate(Math.PI / 2);
+    spectrumCtx.fillText(`${freqString}hz`, 0, 0);
     spectrumCtx.restore();
   }
   let sumSquares = 0;
