@@ -205,7 +205,7 @@ let allImagesLoaded = false;
 function loadImages() {
   digits.forEach(digit => {
     const img = new Image();
-    img.src = `${digit}.jpg`;
+    img.src = `${digit}.png`;
     img.onload = () => {
       imagesLoadedCount++;
       if (imagesLoadedCount === digits.length) {
